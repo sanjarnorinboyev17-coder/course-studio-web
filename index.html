@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="uz">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Course Studio</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">CS</div>
+          <div>
+            <h1>Course Studio</h1>
+            <p>Kurs va dars boshqaruvi</p>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button id="modeToggle" class="icon-button" title="Admin/O'quvchi rejimi">👤</button>
+          <button id="themeToggle" class="icon-button" title="Light/Dark mode">◐</button>
+          <button id="exportBtn" class="icon-button" title="Ma'lumotlarni export qilish">⇩</button>
+        </div>
+
+        <label class="field">
+          <span>Qidirish</span>
+          <input id="searchInput" type="search" placeholder="Kurs yoki mavzu..." />
+        </label>
+
+        <button id="newCourseBtn" class="primary full">+ Yangi kurs</button>
+
+        <div id="courseList" class="course-list"></div>
+      </aside>
+
+      <main class="content">
+        <section id="emptyState" class="empty-state">
+          <div class="empty-icon">📚</div>
+          <h2>Kurs tanlang yoki yangi kurs yarating</h2>
+          <p>Kurslar, dars mavzulari, fayllar, YouTube videolar va o'qilgan mavzular shu yerda boshqariladi.</p>
+        </section>
+
+        <section id="coursePanel" class="course-panel hidden">
+          <header class="course-header">
+            <div>
+              <p id="activeModeLabel" class="eyebrow">Admin rejimi</p>
+              <h2 id="courseTitle"></h2>
+              <p id="courseDescription"></p>
+            </div>
+            <div class="actions admin-only">
+              <button id="editCourseBtn" class="secondary">Tahrirlash</button>
+              <button id="deleteCourseBtn" class="danger">O'chirish</button>
+              <button id="newLessonBtn" class="primary">+ Mavzu</button>
+            </div>
+          </header>
+
+          <div id="lessonList" class="lesson-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="courseDialog" class="dialog">
+      <form id="courseForm" method="dialog">
+        <h3 id="courseDialogTitle">Yangi kurs</h3>
+        <label class="field">
+          <span>Kurs nomi</span>
+          <input id="courseNameInput" required maxlength="120" />
+        </label>
+        <label class="field">
+          <span>Kurs tavsifi</span>
+          <textarea id="courseDescInput" required rows="4"></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button type="button" class="secondary" data-close="courseDialog">Bekor qilish</button>
+          <button class="primary" type="submit">Saqlash</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="lessonDialog" class="dialog wide">
+      <form id="lessonForm" method="dialog">
+        <h3 id="lessonDialogTitle">Yangi mavzu</h3>
+        <div class="form-grid">
+          <label class="field">
+            <span>Mavzu nomi</span>
+            <input id="lessonTitleInput" required maxlength="140" />
+          </label>
+          <label class="field">
+            <span>YouTube link</span>
+            <input id="lessonYoutubeInput" placeholder="https://www.youtube.com/watch?v=..." />
+          </label>
+        </div>
+        <label class="field">
+          <span>Dars tavsifi</span>
+          <textarea id="lessonDescInput" required rows="3"></textarea>
+        </label>
+        <label class="field">
+          <span>Matnli izoh</span>
+          <textarea id="lessonNoteInput" rows="3"></textarea>
+        </label>
+        <label class="field">
+          <span>Fayllar: PDF, Word, PPT, Excel, ZIP va boshqalar</span>
+          <input id="lessonFilesInput" type="file" multiple />
+        </label>
+        <div id="attachedFiles" class="attached-files"></div>
+        <div class="dialog-actions">
+          <button type="button" class="secondary" data-close="lessonDialog">Bekor qilish</button>
+          <button class="primary" type="submit">Saqlash</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
