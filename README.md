@@ -76,6 +76,10 @@ Server quyidagi papkalarga yozadi:
 
 Deploy platformasida persistent disk kerak. Agar serverless platformaga joylasangiz, JSON fayl o'rniga PostgreSQL, MySQL yoki managed database ishlating.
 
+Vercel uchun `api/index.js` va `vercel.json` qo'shilgan. Vercel serverless muhitida demo login ishlaydi, lekin fayl va JSON ma'lumotlar doimiy saqlanishi uchun keyingi bosqichda database/storage ulash kerak.
+
+GitHub Pages yoki oddiy static hostingda login ishlamaydi, chunki `/api/*` backend endpointlari kerak.
+
 ## Keyin sozlanadigan joylar
 
 - Model/database schema: `server/server.js` ichidagi `seedDb()` va array kolleksiyalar

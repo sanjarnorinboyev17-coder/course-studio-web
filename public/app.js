@@ -14,8 +14,14 @@ const api = async (path, options = {}) => {
   const headers = { ...(options.headers || {}) };
   if (!(options.body instanceof FormData)) headers["content-type"] = "application/json";
   if (state.token) headers.authorization = `Bearer ${state.token}`;
-  const response = await fetch(path, { ...options, headers });
-  const data = await response.json().catch(() => ({}));
+  let response;
+  try {
+    response = await fetch(path, { ...options, headers });
+  } catch {
+    throw new Error("Backend ishlamayapti. Ilovani `npm run dev` bilan oching yoki Vercel'da API deployment borligini tekshiring.");
+  }
+  const contentType = response.headers.get("content-type") || "";
+  const data = contentType.includes("application/json") ? await response.json().catch(() => ({})) : {};
   if (!response.ok) throw new Error(data.error || "So'rov bajarilmadi.");
   return data;
 };

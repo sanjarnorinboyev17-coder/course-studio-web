@@ -6,8 +6,9 @@ const { URL } = require("node:url");
 
 const root = path.join(__dirname, "..");
 const publicDir = path.join(root, "public");
-const dataDir = path.join(__dirname, "data");
-const uploadDir = path.join(__dirname, "uploads");
+const runtimeDir = process.env.VERCEL ? path.join("/tmp", "course-studio") : __dirname;
+const dataDir = path.join(runtimeDir, "data");
+const uploadDir = path.join(runtimeDir, "uploads");
 const dbFile = path.join(dataDir, "course-studio.json");
 const envFile = path.join(root, ".env");
 
@@ -461,7 +462,7 @@ async function api(req, res, pathname, method) {
   fail(res, 404, "API endpoint topilmadi.");
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
@@ -477,8 +478,13 @@ const server = http.createServer(async (req, res) => {
     console.error(error);
     fail(res, 500, "Server xatosi.");
   }
-});
+}
 
-server.listen(port, () => {
-  console.log(`Course Studio running at http://localhost:${port}`);
-});
+if (require.main === module) {
+  const server = http.createServer(handleRequest);
+  server.listen(port, () => {
+    console.log(`Course Studio running at http://localhost:${port}`);
+  });
+}
+
+module.exports = { handleRequest };
