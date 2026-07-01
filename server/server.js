@@ -138,6 +138,7 @@ function ensureSeedUsers(dbState) {
 }
 
 let db = null;
+let dbLoadPromise = null;
 
 function normalizeDb(dbState) {
   dbState.users = dbState.users || [];
@@ -273,6 +274,21 @@ async function loadDb() {
   ensureSeedUsers(state);
   if (!usersRes.rowCount) await saveDb(state);
   return state;
+}
+
+async function ensureDbLoaded() {
+  if (db) return db;
+  if (!dbLoadPromise) {
+    dbLoadPromise = loadDb()
+      .then((state) => {
+        db = state;
+        return state;
+      })
+      .finally(() => {
+        dbLoadPromise = null;
+      });
+  }
+  return dbLoadPromise;
 }
 
 async function saveDb(nextDb = db) {
@@ -957,6 +973,7 @@ async function api(req, res, pathname, method) {
 
 async function handleRequest(req, res) {
   try {
+    await ensureDbLoaded();
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
     if (pathname.startsWith("/api/")) return api(req, res, pathname, req.method);
@@ -976,7 +993,7 @@ async function handleRequest(req, res) {
 if (require.main === module) {
   (async () => {
     try {
-      db = await loadDb();
+      await ensureDbLoaded();
       const server = http.createServer(handleRequest);
       server.listen(port, () => {
         console.log(`Course Studio running at http://localhost:${port}`);
