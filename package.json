@@ -1,0 +1,13 @@
+{
+  "name": "course-studio-fullstack",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Course Studio full-stack RBAC learning platform",
+  "scripts": {
+    "dev": "node server/server.js",
+    "start": "NODE_ENV=production node server/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

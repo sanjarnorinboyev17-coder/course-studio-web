@@ -1,0 +1,4 @@
+node_modules/
+.env
+server/data/course-studio.json
+server/uploads/
