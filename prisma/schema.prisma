@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model users {
+  id           String   @id
+  name         String
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  role         String
+  createdBy    String?  @map("created_by")
+  teacherId    String?  @map("teacher_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  phone        String   @default("")
+  telegramNotify Boolean @default(true) @map("telegram_notify")
+  smsNotify      Boolean @default(true) @map("sms_notify")
+  emailNotify    Boolean @default(true) @map("email_notify")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("course_studio_users")
+}
+
+model courses {
+  id          String   @id
+  title       String
+  description String?
+  teacherId   String   @map("teacher_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("course_studio_courses")
+}
+
+model lessons {
+  id        String   @id
+  courseId  String   @map("course_id")
+  title     String
+  order     Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("course_studio_lessons")
+}
+
+model lessonContent {
+  id        String   @id
+  lessonId  String   @map("lesson_id")
+  type      String
+  content   String
+  fileUrl   String?  @map("file_url")
+  fileName  String?  @map("file_name")
+  mimeType  String?  @map("mime_type")
+  order     Float    @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("course_studio_lesson_content")
+}
+
+model enrollments {
+  id               String   @id
+  courseId         String   @map("course_id")
+  studentId        String   @map("student_id")
+  progress         Int      @default(0)
+  completedLessons String[] @default([]) @map("completed_lessons")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([courseId, studentId])
+  @@map("course_studio_enrollments")
+}
+
+model submissions {
+  id        String   @id
+  lessonId  String   @map("lesson_id")
+  studentId String   @map("student_id")
+  content   String
+  fileUrl   String?  @map("file_url")
+  grade     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("course_studio_submissions")
+}
+
+model auditLog {
+  id        String   @id
+  actorId   String?  @map("actor_id")
+  action    String
+  entity    String
+  entityId  String   @map("entity_id")
+  details   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("course_studio_audit_logs")
+}

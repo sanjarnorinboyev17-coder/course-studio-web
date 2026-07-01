@@ -20,14 +20,16 @@
           <form id="loginForm" class="form">
             <label>
               <span>Username</span>
-              <input id="loginUsername" autocomplete="username" required value="admin" />
+              <input id="loginUsername" autocomplete="username" required />
             </label>
-            <label>
+            <label class="password-field">
               <span>Parol</span>
-              <input id="loginPassword" type="password" autocomplete="current-password" required value="admin12345" />
+              <span class="password-control">
+                <input id="loginPassword" type="password" autocomplete="current-password" required />
+                <button type="button" class="password-toggle" data-password-toggle aria-label="Parolni ko'rsatish"></button>
+              </span>
             </label>
             <button class="primary" type="submit">Kirish</button>
-            <p class="hint">Demo: admin/admin12345, teacher/teacher123, student/student123</p>
           </form>
           <div id="loginError" class="error hidden"></div>
         </div>
@@ -35,6 +37,11 @@
 
       <section id="shellView" class="shell hidden">
         <aside class="sidebar">
+          <div class="sidebar-top">
+            <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">
+              <span class="sidebar-toggle__icon">‹</span>
+            </button>
+          </div>
           <div class="brand-row compact">
             <span class="brand-mark">CS</span>
             <div>
@@ -42,12 +49,34 @@
               <p id="roleLabel">Role</p>
             </div>
           </div>
+          <div class="sidebar-user">
+            <div class="avatar avatar-inline" id="sidebarAvatar">SA</div>
+            <div>
+              <div id="sidebarUserName">User</div>
+              <div class="muted" id="sidebarUserRole">role</div>
+            </div>
+          </div>
           <nav class="nav">
-            <button data-tab="dashboard" class="nav-btn active">Dashboard</button>
-            <button data-tab="users" class="nav-btn admin-teacher">Foydalanuvchilar</button>
-            <button data-tab="courses" class="nav-btn">Kurslar</button>
+            <button type="button" data-tab="dashboard" class="nav-btn active" data-nav-label="Dashboard">
+              <span class="nav-icon" aria-hidden="true">⌂</span><span class="nav-label">Dashboard</span>
+            </button>
+            <button type="button" data-tab="users" class="nav-btn admin-teacher" data-nav-label="Foydalanuvchilar">
+              <span class="nav-icon" aria-hidden="true">👥</span><span class="nav-label">Foydalanuvchilar</span>
+            </button>
+            <button type="button" data-tab="courses" class="nav-btn" data-nav-label="Kurslar">
+              <span class="nav-icon" aria-hidden="true">📚</span><span class="nav-label">Kurslar</span>
+            </button>
+            <button type="button" data-tab="settings" class="nav-btn" data-nav-label="Settings">
+              <span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-label">Settings</span>
+            </button>
           </nav>
-          <button id="logoutBtn" class="secondary full">Chiqish</button>
+          <div class="top-actions" style="justify-content:flex-start; flex-direction:column; align-items:stretch; gap:8px;">
+            <button id="themeToggle" class="theme-toggle" type="button" aria-label="Qorong'u rejimni yoqish">
+              <span class="theme-icon--sun" data-theme-icon></span>
+              <span class="theme-icon--moon" data-theme-icon></span>
+            </button>
+            <button id="logoutBtn" class="secondary full">Chiqish</button>
+          </div>
         </aside>
 
         <section class="workspace">
@@ -57,6 +86,7 @@
               <h2 id="pageTitle">Dashboard</h2>
             </div>
             <div class="top-actions">
+              <button id="profileBtn" class="secondary">Profil</button>
               <button id="newUserBtn" class="primary admin-only">+ Foydalanuvchi</button>
               <button id="newCourseBtn" class="primary admin-teacher">+ Kurs</button>
             </div>
@@ -73,6 +103,30 @@
               <article><span>Kurslar</span><strong id="statCourses">0</strong></article>
               <article><span>Darslar</span><strong id="statLessons">0</strong></article>
             </div>
+            <div id="adminStats" class="hidden">
+              <div class="section-head">
+                <h3>Admin analytics</h3>
+                <span class="muted">Foydalanuvchilar va baholar statistikasi</span>
+              </div>
+              <div class="charts-grid">
+                <article class="chart-card">
+                  <h4>Ro'yxatdan o'tganlar</h4>
+                  <div id="signupSeries" class="mini-bars"></div>
+                </article>
+                <article class="chart-card">
+                  <h4>O'quvchilar kurs bo'yicha</h4>
+                  <div id="courseStudents" class="mini-list"></div>
+                </article>
+                <article class="chart-card">
+                  <h4>Rol taqsimoti</h4>
+                  <div id="roleDistribution" class="mini-list"></div>
+                </article>
+                <article class="chart-card">
+                  <h4>Baholash tarqalishi</h4>
+                  <div id="ratingDistribution" class="mini-list"></div>
+                </article>
+              </div>
+            </div>
             <div class="section-head">
               <h3>Audit log</h3>
               <span class="muted">Admin uchun oxirgi amallar</span>
@@ -86,6 +140,19 @@
 
           <section id="coursesTab" class="tab-panel hidden">
             <div id="coursesList" class="course-grid"></div>
+          </section>
+
+          <section id="settingsTab" class="tab-panel hidden">
+            <div class="settings-grid">
+              <div class="settings-nav">
+                <button class="active" data-settings-tab="profile">Profile</button>
+                <button data-settings-tab="account">Account</button>
+                <button data-settings-tab="security">Xavfsizlik</button>
+                <button data-settings-tab="notifications">Bildirishnomalar</button>
+                <button data-settings-tab="reviews">Reviews</button>
+              </div>
+              <div id="settingsPanel" class="settings-panel"></div>
+            </div>
           </section>
         </section>
       </section>
@@ -103,7 +170,13 @@
             <option value="student">O'quvchi</option>
           </select>
         </label>
-        <label><span>Parol (bo'sh qolsa generatsiya qilinadi)</span><input name="password" /></label>
+        <label class="password-field">
+          <span>Parol (bo'sh qolsa generatsiya qilinadi)</span>
+          <span class="password-control">
+            <input name="password" type="password" autocomplete="new-password" />
+            <button type="button" class="password-toggle" data-password-toggle aria-label="Parolni ko'rsatish"></button>
+          </span>
+        </label>
         <label><span>O'qituvchi ID (o'quvchi uchun)</span><input name="teacher_id" /></label>
         <div class="dialog-actions">
           <button type="button" class="secondary" data-close>Bekor</button>
@@ -141,6 +214,7 @@
       <form id="contentForm" class="form dialog-body">
         <h3>Kontent qo'shish</h3>
         <input type="hidden" name="lesson_id" />
+        <input type="hidden" name="order" />
         <div class="segmented">
           <label><input type="radio" name="type" value="text" checked /> Matn</label>
           <label><input type="radio" name="type" value="link" /> Havola</label>
@@ -175,6 +249,50 @@
         </div>
       </form>
     </dialog>
+
+    <dialog id="profileDialog">
+      <form id="profileForm" class="form dialog-body">
+        <h3>Profil login-paroli</h3>
+        <label><span>Login</span><input name="username" autocomplete="username" required /></label>
+        <label class="password-field">
+          <span>Yangi parol (bo'sh qolsa o'zgarmaydi)</span>
+          <span class="password-control">
+            <input name="password" type="password" autocomplete="new-password" />
+            <button type="button" class="password-toggle" data-password-toggle aria-label="Parolni ko'rsatish"></button>
+          </span>
+        </label>
+        <div class="dialog-actions">
+          <button type="button" class="secondary" data-close>Bekor</button>
+          <button class="primary">Saqlash</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="credentialDialog">
+      <form id="credentialForm" class="form dialog-body">
+        <h3>Login-parolni o'zgartirish</h3>
+        <input type="hidden" name="user_id" />
+        <label><span>Login</span><input name="username" autocomplete="username" required /></label>
+        <label class="password-field">
+          <span>Yangi parol (bo'sh qolsa o'zgarmaydi)</span>
+          <span class="password-control">
+            <input name="password" type="password" autocomplete="new-password" />
+            <button type="button" class="password-toggle" data-password-toggle aria-label="Parolni ko'rsatish"></button>
+          </span>
+        </label>
+        <div class="dialog-actions">
+          <button type="button" class="secondary" data-close>Bekor</button>
+          <button class="primary">Saqlash</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="linkModal" class="modal-backdrop" role="dialog" aria-modal="true">
+      <div class="modal-panel">
+        <button class="secondary modal-close" data-close-link type="button">✕</button>
+        <div id="linkModalBody"></div>
+      </div>
+    </div>
 
     <script src="/app.js"></script>
   </body>

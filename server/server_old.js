@@ -4,12 +4,18 @@ const http = require("node:http");
 const path = require("node:path");
 const { URL } = require("node:url");
 
+let PrismaClient;
+try {
+  ({ PrismaClient } = require("@prisma/client"));
+} catch {
+  PrismaClient = null;
+}
+
 const root = path.join(__dirname, "..");
 const publicDir = path.join(root, "public");
 const runtimeDir = process.env.VERCEL ? path.join("/tmp", "course-studio") : __dirname;
 const dataDir = path.join(runtimeDir, "data");
 const uploadDir = path.join(runtimeDir, "uploads");
-const dbFile = path.join(dataDir, "course-studio.json");
 const envFile = path.join(root, ".env");
 
 if (fs.existsSync(envFile)) {
@@ -21,6 +27,11 @@ if (fs.existsSync(envFile)) {
 
 const port = Number(process.env.PORT || 3000);
 const jwtSecret = process.env.JWT_SECRET || "dev-only-change-me";
+const prisma = PrismaClient ? (globalThis.__courseStudioPrisma || new PrismaClient()) : null;
+
+if (prisma && !globalThis.__courseStudioPrisma) {
+  globalThis.__courseStudioPrisma = prisma;
+}
 
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -77,112 +88,229 @@ function seedDb() {
   const lessonId = id("les");
   return {
     users: [
-      { id: adminId, name: "Platform Admin", username: process.env.ADMIN_USERNAME || "admin", password_hash: hashPassword(adminPassword), role: "admin", created_by: null, teacher_id: null, is_active: true, avatar_url: null, phone: "", telegram_notify: true, sms_notify: true, email_notify: true, created_at: now() },
-      { id: teacherId, name: "Demo O'qituvchi", username: "teacher", password_hash: hashPassword("teacher123"), role: "teacher", created_by: adminId, teacher_id: null, is_active: true, avatar_url: null, phone: "", telegram_notify: true, sms_notify: true, email_notify: true, created_at: now() },
-      { id: studentId, name: "Demo O'quvchi", username: "student", password_hash: hashPassword("student123"), role: "student", created_by: adminId, teacher_id: teacherId, is_active: true, avatar_url: null, phone: "", telegram_notify: true, sms_notify: true, email_notify: true, created_at: now() }
+      { id: adminId, name: "Platform Admin", username: process.env.ADMIN_USERNAME || "admin", password_hash: hashPassword(adminPassword), role: "admin", created_by: null, teacher_id: null, is_active: true, created_at: now() },
+      { id: teacherId, name: "Demo O'qituvchi", username: "teacher", password_hash: hashPassword("teacher123"), role: "teacher", created_by: adminId, teacher_id: null, is_active: true, created_at: now() },
+      { id: studentId, name: "Demo O'quvchi", username: "student", password_hash: hashPassword("student123"), role: "student", created_by: adminId, teacher_id: teacherId, is_active: true, created_at: now() }
     ],
     courses: [{ id: courseId, title: "Frontend asoslari", description: "HTML, CSS va JavaScript bo'yicha amaliy kurs.", teacher_id: teacherId, created_at: now() }],
     lessons: [{ id: lessonId, course_id: courseId, title: "HTML tuzilmasi", order: 1, created_at: now() }],
-    lesson_content: [{ id: id("cnt"), lesson_id: lessonId, type: "text", content: "<h2>HTML skeleti</h2><p>Semantik teglar bilan oddiy sahifa tuzing.</p>", file_url: null, file_name: null, mime_type: null, order: 1, created_at: now() }],
+    lesson_content: [{ id: id("cnt"), lesson_id: lessonId, type: "text", content: "<h2>HTML skeleti</h2><p>Semantik teglar bilan oddiy sahifa tuzing.</p>", file_url: null, file_name: null, mime_type: null, created_at: now() }],
     enrollments: [{ id: id("enr"), course_id: courseId, student_id: studentId, progress: 0, completed_lessons: [], created_at: now() }],
     submissions: [],
-    ratings: [],
     audit_logs: []
   };
 }
 
-function ensureSeedUsers(dbState) {
-  const adminPassword = process.env.ADMIN_PASSWORD || "admin12345";
-  const admin = dbState.users.find((item) => item.username === (process.env.ADMIN_USERNAME || "admin")) || dbState.users.find((item) => item.role === "admin");
-  if (admin) {
-    admin.name = admin.name || "Platform Admin";
-    admin.role = "admin";
-    admin.is_active = true;
-    admin.password_hash = admin.password_hash || hashPassword(adminPassword);
-    admin.phone = admin.phone || "";
-    admin.telegram_notify ??= true;
-    admin.sms_notify ??= true;
-    admin.email_notify ??= true;
-  } else {
-    dbState.users.unshift({ id: id("usr"), name: "Platform Admin", username: process.env.ADMIN_USERNAME || "admin", password_hash: hashPassword(adminPassword), role: "admin", created_by: null, teacher_id: null, is_active: true, avatar_url: null, phone: "", telegram_notify: true, sms_notify: true, email_notify: true, created_at: now() });
-  }
-
-  const teacher = dbState.users.find((item) => item.username === "teacher");
-  if (teacher) {
-    teacher.name = teacher.name || "Demo O'qituvchi";
-    teacher.role = "teacher";
-    teacher.is_active = true;
-    teacher.password_hash = teacher.password_hash || hashPassword("teacher123");
-    teacher.phone = teacher.phone || "";
-    teacher.telegram_notify ??= true;
-    teacher.sms_notify ??= true;
-    teacher.email_notify ??= true;
-  } else {
-    dbState.users.push({ id: id("usr"), name: "Demo O'qituvchi", username: "teacher", password_hash: hashPassword("teacher123"), role: "teacher", created_by: admin?.id || null, teacher_id: null, is_active: true, avatar_url: null, phone: "", telegram_notify: true, sms_notify: true, email_notify: true, created_at: now() });
-  }
-
-  const student = dbState.users.find((item) => item.username === "student");
-  if (student) {
-    student.name = student.name || "Demo O'quvchi";
-    student.role = "student";
-    student.is_active = true;
-    student.password_hash = student.password_hash || hashPassword("student123");
-    student.phone = student.phone || "";
-    student.telegram_notify ??= true;
-    student.sms_notify ??= true;
-    student.email_notify ??= true;
-  } else {
-    dbState.users.push({ id: id("usr"), name: "Demo O'quvchi", username: "student", password_hash: hashPassword("student123"), role: "student", created_by: admin?.id || null, teacher_id: dbState.users.find((item) => item.username === "teacher")?.id || null, is_active: true, avatar_url: null, phone: "", telegram_notify: true, sms_notify: true, email_notify: true, created_at: now() });
-  }
+function toDate(value) {
+  return value ? new Date(value) : null;
 }
 
-function loadDb() {
-  if (!fs.existsSync(dbFile)) {
-    const fresh = seedDb();
-    fs.writeFileSync(dbFile, JSON.stringify(fresh, null, 2));
-    return fresh;
-  }
-  return normalizeDb(JSON.parse(fs.readFileSync(dbFile, "utf8")));
+function mapUser(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    username: user.username,
+    password_hash: user.passwordHash,
+    role: user.role,
+    created_by: user.createdBy,
+    teacher_id: user.teacherId,
+    is_active: user.isActive,
+    created_at: user.createdAt.toISOString()
+  };
 }
 
-let db = loadDb();
-ensureSeedUsers(db);
-saveDb();
-
-function saveDb() {
-  normalizeDb(db);
-  fs.writeFileSync(dbFile, JSON.stringify(db, null, 2));
+function mapCourse(course) {
+  return {
+    id: course.id,
+    title: course.title,
+    description: course.description,
+    teacher_id: course.teacherId,
+    created_at: course.createdAt.toISOString()
+  };
 }
 
-function normalizeDb(dbState) {
-  dbState.users = dbState.users || [];
-  dbState.courses = dbState.courses || [];
-  dbState.lessons = dbState.lessons || [];
-  dbState.lesson_content = dbState.lesson_content || [];
-  dbState.enrollments = dbState.enrollments || [];
-  dbState.submissions = dbState.submissions || [];
-  dbState.ratings = dbState.ratings || [];
-  dbState.audit_logs = dbState.audit_logs || [];
-  dbState.users.forEach((user) => {
-    user.phone = user.phone || "";
-    user.telegram_notify ??= true;
-    user.sms_notify ??= true;
-    user.email_notify ??= true;
-  });
-  for (const lesson of dbState.lessons || []) {
-    const contents = (dbState.lesson_content || [])
-      .filter((content) => content.lesson_id === lesson.id)
-      .sort((a, b) => {
-        const left = Number.isFinite(Number(a.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
-        const right = Number.isFinite(Number(b.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
-        return left - right || new Date(a.created_at || 0) - new Date(b.created_at || 0);
-      });
-    contents.forEach((content, index) => {
-      if (!Number.isFinite(Number(content.order))) content.order = index + 1;
-      else content.order = Number(content.order);
-    });
+function mapLesson(lesson) {
+  return {
+    id: lesson.id,
+    course_id: lesson.courseId,
+    title: lesson.title,
+    order: lesson.order,
+    created_at: lesson.createdAt.toISOString()
+  };
+}
+
+function mapLessonContent(content) {
+  return {
+    id: content.id,
+    lesson_id: content.lessonId,
+    type: content.type,
+    content: content.content,
+    file_url: content.fileUrl,
+    file_name: content.fileName,
+    mime_type: content.mimeType,
+    created_at: content.createdAt.toISOString()
+  };
+}
+
+function mapEnrollment(enrollment) {
+  return {
+    id: enrollment.id,
+    course_id: enrollment.courseId,
+    student_id: enrollment.studentId,
+    progress: enrollment.progress,
+    completed_lessons: enrollment.completedLessons || [],
+    created_at: enrollment.createdAt.toISOString()
+  };
+}
+
+function mapSubmission(submission) {
+  return {
+    id: submission.id,
+    lesson_id: submission.lessonId,
+    student_id: submission.studentId,
+    content: submission.content,
+    file_url: submission.fileUrl,
+    grade: submission.grade,
+    created_at: submission.createdAt.toISOString()
+  };
+}
+
+function mapAuditLog(log) {
+  return {
+    id: log.id,
+    actor_id: log.actorId,
+    action: log.action,
+    entity: log.entity,
+    entity_id: log.entityId,
+    details: log.details || {},
+    created_at: log.createdAt.toISOString()
+  };
+}
+
+function dbToPrisma(dbState) {
+  return {
+    users: dbState.users.map((user) => ({
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      passwordHash: user.password_hash,
+      role: user.role,
+      createdBy: user.created_by,
+      teacherId: user.teacher_id,
+      isActive: user.is_active,
+      createdAt: toDate(user.created_at) || new Date()
+    })),
+    courses: dbState.courses.map((course) => ({
+      id: course.id,
+      title: course.title,
+      description: course.description,
+      teacherId: course.teacher_id,
+      createdAt: toDate(course.created_at) || new Date()
+    })),
+    lessons: dbState.lessons.map((lesson) => ({
+      id: lesson.id,
+      courseId: lesson.course_id,
+      title: lesson.title,
+      order: lesson.order,
+      createdAt: toDate(lesson.created_at) || new Date()
+    })),
+    lessonContents: dbState.lesson_content.map((content) => ({
+      id: content.id,
+      lessonId: content.lesson_id,
+      type: content.type,
+      content: content.content,
+      fileUrl: content.file_url,
+      fileName: content.file_name,
+      mimeType: content.mime_type,
+      createdAt: toDate(content.created_at) || new Date()
+    })),
+    enrollments: dbState.enrollments.map((enrollment) => ({
+      id: enrollment.id,
+      courseId: enrollment.course_id,
+      studentId: enrollment.student_id,
+      progress: enrollment.progress,
+      completedLessons: enrollment.completed_lessons || [],
+      createdAt: toDate(enrollment.created_at) || new Date()
+    })),
+    submissions: dbState.submissions.map((submission) => ({
+      id: submission.id,
+      lessonId: submission.lesson_id,
+      studentId: submission.student_id,
+      content: submission.content,
+      fileUrl: submission.file_url,
+      grade: submission.grade,
+      createdAt: toDate(submission.created_at) || new Date()
+    })),
+    auditLogs: dbState.audit_logs.map((log) => ({
+      id: log.id,
+      actorId: log.actor_id,
+      action: log.action,
+      entity: log.entity,
+      entityId: log.entity_id,
+      details: log.details || {},
+      createdAt: toDate(log.created_at) || new Date()
+    }))
+  };
+}
+
+async function loadDb() {
+  if (!prisma) {
+    throw new Error("Prisma client topilmadi. `npm install` ni bajaring.");
   }
-  return dbState;
+
+  const userCount = await prisma.user.count();
+  if (!userCount) {
+    db = seedDb();
+    await saveDb();
+    return db;
+  }
+
+  const [users, courses, lessons, lessonContents, enrollments, submissions, auditLogs] = await Promise.all([
+    prisma.user.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.course.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.lesson.findMany({ orderBy: [{ courseId: "asc" }, { order: "asc" }] }),
+    prisma.lessonContent.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.enrollment.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.submission.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" } })
+  ]);
+
+  return {
+    users: users.map(mapUser),
+    courses: courses.map(mapCourse),
+    lessons: lessons.map(mapLesson),
+    lesson_content: lessonContents.map(mapLessonContent),
+    enrollments: enrollments.map(mapEnrollment),
+    submissions: submissions.map(mapSubmission),
+    audit_logs: auditLogs.map(mapAuditLog)
+  };
+}
+
+let db = null;
+
+async function saveDb() {
+  if (!prisma) {
+    throw new Error("Prisma client topilmadi. `npm install` ni bajaring.");
+  }
+
+  const snapshot = dbToPrisma(db);
+  await prisma.$transaction([
+    prisma.submission.deleteMany(),
+    prisma.auditLog.deleteMany(),
+    prisma.lessonContent.deleteMany(),
+    prisma.enrollment.deleteMany(),
+    prisma.lesson.deleteMany(),
+    prisma.course.deleteMany(),
+    prisma.user.deleteMany()
+  ]);
+
+  if (snapshot.users.length) await prisma.user.createMany({ data: snapshot.users });
+  if (snapshot.courses.length) await prisma.course.createMany({ data: snapshot.courses });
+  if (snapshot.lessons.length) await prisma.lesson.createMany({ data: snapshot.lessons });
+  if (snapshot.lessonContents.length) await prisma.lessonContent.createMany({ data: snapshot.lessonContents });
+  if (snapshot.enrollments.length) await prisma.enrollment.createMany({ data: snapshot.enrollments });
+  if (snapshot.submissions.length) await prisma.submission.createMany({ data: snapshot.submissions });
+  if (snapshot.auditLogs.length) await prisma.auditLog.createMany({ data: snapshot.auditLogs });
 }
 
 function audit(actor, action, entity, entityId, details = {}) {
@@ -248,17 +376,6 @@ function canManageCourse(user, course) {
   return user.role === "admin" || (user.role === "teacher" && course.teacher_id === user.id);
 }
 
-function usernameTaken(username, exceptUserId = null) {
-  return db.users.some((item) => item.username === username && item.id !== exceptUserId);
-}
-
-function teacherCanManageStudent(teacher, student) {
-  if (teacher.role !== "teacher" || student.role !== "student") return false;
-  if (student.teacher_id === teacher.id) return true;
-  const teacherCourseIds = new Set(db.courses.filter((course) => course.teacher_id === teacher.id).map((course) => course.id));
-  return db.enrollments.some((enrollment) => enrollment.student_id === student.id && teacherCourseIds.has(enrollment.course_id));
-}
-
 function visibleCourses(user) {
   if (user.role === "admin") return db.courses;
   if (user.role === "teacher") return db.courses.filter((course) => course.teacher_id === user.id);
@@ -272,13 +389,11 @@ function hydrateCourse(course, user) {
     .sort((a, b) => a.order - b.order)
     .map((lesson) => ({
       ...lesson,
-      contents: db.lesson_content.filter((content) => content.lesson_id === lesson.id).sort((a, b) => Number(a.order || 0) - Number(b.order || 0)),
+      contents: db.lesson_content.filter((content) => content.lesson_id === lesson.id),
       submissions: user.role === "student" ? db.submissions.filter((item) => item.lesson_id === lesson.id && item.student_id === user.id) : db.submissions.filter((item) => item.lesson_id === lesson.id)
     }));
   const enrollment = user.role === "student" ? db.enrollments.find((item) => item.course_id === course.id && item.student_id === user.id) : null;
-  const ratings = db.ratings.filter((item) => item.course_id === course.id);
-  const averageRating = ratings.length ? ratings.reduce((sum, item) => sum + Number(item.score || 0), 0) / ratings.length : 0;
-  return { ...course, teacher: publicUser(db.users.find((item) => item.id === course.teacher_id)), lessons, enrollment, ratings, averageRating };
+  return { ...course, teacher: publicUser(db.users.find((item) => item.id === course.teacher_id)), lessons, enrollment };
 }
 
 function parseMultipart(buffer, contentType) {
@@ -314,17 +429,6 @@ function sanitize(input = "") {
   return String(input).replace(/[<>]/g, "").trim();
 }
 
-function saveUploadedFile(file, folder) {
-  const safeFolder = String(folder || "").replace(/^\/+|\/+$/g, "");
-  const targetDir = safeFolder ? path.join(uploadDir, safeFolder) : uploadDir;
-  fs.mkdirSync(targetDir, { recursive: true });
-  const safeName = String(file.filename || "file").replace(/[^\w.-]/g, "_");
-  const storedName = `${id("file")}_${safeName}`;
-  fs.writeFileSync(path.join(targetDir, storedName), file.data);
-  const relative = safeFolder ? `${safeFolder}/${storedName}` : storedName;
-  return `/uploads/${relative}`;
-}
-
 function serveStatic(req, res, pathname) {
   const requested = pathname === "/" ? "/index.html" : pathname;
   const filePath = path.normalize(path.join(publicDir, requested));
@@ -349,62 +453,8 @@ async function api(req, res, pathname, method) {
 
   if (pathname === "/api/auth/me" && method === "GET") return send(res, 200, { user: publicUser(user) });
 
-  if (pathname === "/api/profile" && method === "PATCH") {
-    const contentType = req.headers["content-type"] || "";
-    let fields = {};
-    let files = [];
-    if (contentType.includes("multipart/form-data")) ({ fields, files } = parseMultipart(await readBody(req), contentType));
-    else fields = await readJson(req);
-    const nextUsername = sanitize(fields.username ?? user.username);
-    if (!nextUsername) return fail(res, 400, "Login bo'sh bo'lmasin.");
-    if (usernameTaken(nextUsername, user.id)) return fail(res, 409, "Bu login band. Boshqa login tanlang.");
-    user.username = nextUsername;
-    if (fields.name) user.name = sanitize(fields.name);
-    if (fields.phone !== undefined) user.phone = sanitize(fields.phone);
-    if (fields.password) user.password_hash = hashPassword(fields.password);
-    if (files[0]) {
-      const file = files[0];
-      const avatarUrl = saveUploadedFile(file, "avatars");
-      user.avatar_url = avatarUrl;
-    }
-    audit(user, "update", "profile", user.id, { username: user.username });
-    saveDb();
-    return send(res, 200, { user: publicUser(user), message: "Profil yangilandi." });
-  }
-
-  if (pathname === "/api/profile/password" && method === "PATCH") {
-    const body = await readJson(req);
-    if (!verifyPassword(body.current_password || "", user.password_hash)) return fail(res, 400, "Joriy parol noto'g'ri.");
-    if (!body.new_password) return fail(res, 400, "Yangi parolni kiriting.");
-    if (body.new_password !== body.confirm_password) return fail(res, 400, "Yangi parollar mos kelmadi.");
-    user.password_hash = hashPassword(body.new_password);
-    audit(user, "update", "password", user.id);
-    saveDb();
-    return send(res, 200, { message: "Parol muvaffaqiyatli yangilandi." });
-  }
-
-  if (pathname === "/api/profile/notifications" && method === "PATCH") {
-    const body = await readJson(req);
-    user.telegram_notify = body.telegram_notify ?? user.telegram_notify;
-    user.sms_notify = body.sms_notify ?? user.sms_notify;
-    user.email_notify = body.email_notify ?? user.email_notify;
-    audit(user, "update", "notifications", user.id, {
-      telegram_notify: user.telegram_notify,
-      sms_notify: user.sms_notify,
-      email_notify: user.email_notify
-    });
-    saveDb();
-    return send(res, 200, { user: publicUser(user), message: "Bildirishnoma sozlamalari saqlandi." });
-  }
-
   if (pathname === "/api/dashboard" && method === "GET") {
     const courses = visibleCourses(user);
-    const adminStats = user.role === "admin" ? {
-      series: [],
-      studentsPerCourse: db.courses.map((course) => ({ course: course.title, students: db.enrollments.filter((item) => item.course_id === course.id).length })),
-      roleDistribution: ["admin", "teacher", "student"].map((role) => ({ role, count: db.users.filter((item) => item.role === role).length })),
-      ratingDistribution: [1, 2, 3, 4, 5].map((score) => ({ score, count: db.ratings.filter((item) => Number(item.score) === score).length }))
-    } : null;
     return send(res, 200, {
       stats: {
         teachers: db.users.filter((item) => item.role === "teacher" && item.is_active).length,
@@ -412,8 +462,7 @@ async function api(req, res, pathname, method) {
         courses: courses.length,
         lessons: db.lessons.filter((lesson) => courses.some((course) => course.id === lesson.course_id)).length
       },
-      audit: user.role === "admin" ? db.audit_logs.slice(0, 20) : [],
-      adminStats
+      audit: user.role === "admin" ? db.audit_logs.slice(0, 20) : []
     });
   }
 
@@ -428,15 +477,9 @@ async function api(req, res, pathname, method) {
     if (!requireRole(res, user, ["admin"])) return;
     const body = await readJson(req);
     if (!roles.includes(body.role) || body.role === "admin") return fail(res, 400, "Faqat teacher yoki student yaratiladi.");
-    if (body.role === "student" && body.teacher_id) {
-      const teacher = db.users.find((item) => item.id === body.teacher_id && item.role === "teacher");
-      if (!teacher) return fail(res, 400, "O'qituvchi topilmadi.");
-      if (user.role === "teacher" && teacher.id !== user.id) return fail(res, 403, "Siz boshqa o'qituvchining o'quvchilarini boshqara olmaysiz.");
-    }
-    const username = sanitize(body.username);
-    if (!username || usernameTaken(username)) return fail(res, 400, "Username band yoki bo'sh.");
+    if (!body.username || db.users.some((item) => item.username === body.username)) return fail(res, 400, "Username band yoki bo'sh.");
     const password = body.password || crypto.randomBytes(5).toString("base64url");
-    const created = { id: id("usr"), name: sanitize(body.name), username, password_hash: hashPassword(password), role: body.role, created_by: user.id, teacher_id: body.role === "student" ? body.teacher_id || null : null, is_active: true, created_at: now() };
+    const created = { id: id("usr"), name: sanitize(body.name), username: sanitize(body.username), password_hash: hashPassword(password), role: body.role, created_by: user.id, teacher_id: body.role === "student" ? body.teacher_id || null : null, is_active: true, created_at: now() };
     db.users.push(created);
     audit(user, "create", "user", created.id, { username: created.username, role: created.role });
     saveDb();
@@ -445,26 +488,16 @@ async function api(req, res, pathname, method) {
 
   const userMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
   if (userMatch && ["PATCH", "DELETE"].includes(method)) {
+    if (!requireRole(res, user, ["admin"])) return;
     const target = db.users.find((item) => item.id === userMatch[1]);
     if (!target || target.role === "admin") return fail(res, 404, "Foydalanuvchi topilmadi.");
-    const canEditCredentials = user.role === "admin" || teacherCanManageStudent(user, target);
-    if (method === "DELETE") {
-      if (!requireRole(res, user, ["admin"])) return;
-      db.users = db.users.filter((item) => item.id !== target.id);
-    }
+    if (method === "DELETE") db.users = db.users.filter((item) => item.id !== target.id);
     else {
-      if (!canEditCredentials) return fail(res, 403, "Bu foydalanuvchining login-parolini o'zgartirishga ruxsat yo'q.");
       const body = await readJson(req);
-      const nextUsername = body.username === undefined ? target.username : sanitize(body.username);
-      if (!nextUsername) return fail(res, 400, "Login bo'sh bo'lmasin.");
-      if (usernameTaken(nextUsername, target.id)) return fail(res, 409, "Bu login band. Boshqa login tanlang.");
-      target.username = nextUsername;
+      target.name = sanitize(body.name ?? target.name);
+      target.is_active = body.is_active ?? target.is_active;
+      target.teacher_id = body.teacher_id ?? target.teacher_id;
       if (body.password) target.password_hash = hashPassword(body.password);
-      if (user.role === "admin") {
-        target.name = sanitize(body.name ?? target.name);
-        target.is_active = body.is_active ?? target.is_active;
-        target.teacher_id = body.teacher_id ?? target.teacher_id;
-      }
     }
     audit(user, method === "DELETE" ? "delete" : "update", "user", target.id);
     saveDb();
@@ -478,7 +511,6 @@ async function api(req, res, pathname, method) {
     const body = await readJson(req);
     const teacherId = user.role === "teacher" ? user.id : body.teacher_id;
     if (!db.users.some((item) => item.id === teacherId && item.role === "teacher")) return fail(res, 400, "O'qituvchi tanlang.");
-    if (user.role === "teacher" && teacherId !== user.id) return fail(res, 403, "Siz boshqa o'qituvchining kursini yaratolmaysiz.");
     const course = { id: id("crs"), title: sanitize(body.title), description: sanitize(body.description), teacher_id: teacherId, created_at: now() };
     db.courses.push(course);
     audit(user, "create", "course", course.id);
@@ -490,7 +522,6 @@ async function api(req, res, pathname, method) {
   if (courseMatch && ["PATCH", "DELETE"].includes(method)) {
     const course = db.courses.find((item) => item.id === courseMatch[1]);
     if (!course || !canManageCourse(user, course)) return fail(res, 404, "Kurs topilmadi.");
-    if (user.role === "teacher" && course.teacher_id !== user.id) return fail(res, 403, "Bu kursni boshqara olmaysiz.");
     if (method === "DELETE") {
       db.courses = db.courses.filter((item) => item.id !== course.id);
       const lessonIds = db.lessons.filter((item) => item.course_id === course.id).map((item) => item.id);
@@ -551,17 +582,14 @@ async function api(req, res, pathname, method) {
     else fields = await readJson(req);
     const type = fields.type;
     if (!contentTypes.includes(type)) return fail(res, 400, "Content turi noto'g'ri.");
-    const siblings = db.lesson_content.filter((content) => content.lesson_id === lesson.id);
-    const requestedOrder = Number(fields.order);
-    const nextOrder = Number.isFinite(requestedOrder) ? requestedOrder : Math.max(0, ...siblings.map((content) => Number(content.order || 0))) + 1;
-    let record = { id: id("cnt"), lesson_id: lesson.id, type, content: fields.content || "", file_url: null, file_name: null, mime_type: null, order: nextOrder, created_at: now() };
+    let record = { id: id("cnt"), lesson_id: lesson.id, type, content: fields.content || "", file_url: null, file_name: null, mime_type: null, created_at: now() };
     if (type === "file") {
       const file = files[0];
       if (!file) return fail(res, 400, "Fayl tanlanmagan.");
       const fileId = id("file");
       const storedName = `${fileId}_${file.filename}`;
       fs.writeFileSync(path.join(uploadDir, storedName), file.data);
-      record = { ...record, content: fields.content || "", file_url: `/uploads/${storedName}`, file_name: file.filename, mime_type: file.mime, file_size: file.data.length };
+      record = { ...record, content: fields.content || "", file_url: `/uploads/${storedName}`, file_name: file.filename, mime_type: file.mime };
     }
     db.lesson_content.push(record);
     audit(user, "create", "lesson_content", record.id, { type });
@@ -569,166 +597,10 @@ async function api(req, res, pathname, method) {
     return send(res, 201, { content: record });
   }
 
-  const contentOrderMatch = pathname.match(/^\/api\/content\/([^/]+)\/order$/);
-  if (contentOrderMatch && method === "PATCH") {
-    const content = db.lesson_content.find((item) => item.id === contentOrderMatch[1]);
-    const lesson = content && db.lessons.find((item) => item.id === content.lesson_id);
-    const course = lesson && db.courses.find((item) => item.id === lesson.course_id);
-    if (!content || !lesson || !course || !canManageCourse(user, course)) return fail(res, 404, "Kontent topilmadi.");
-
-    const body = await readJson(req);
-    const siblings = db.lesson_content
-      .filter((item) => item.lesson_id === lesson.id)
-      .sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
-    const currentIndex = siblings.findIndex((item) => item.id === content.id);
-
-    if (Number.isFinite(Number(body.order))) {
-      content.order = Number(body.order);
-    } else if (body.direction === "up" || body.direction === "down") {
-      const nextIndex = body.direction === "up" ? currentIndex - 1 : currentIndex + 1;
-      if (nextIndex < 0 || nextIndex >= siblings.length) return send(res, 200, { ok: true, content });
-      const other = siblings[nextIndex];
-      const previousOrder = content.order;
-      content.order = other.order;
-      other.order = previousOrder;
-    } else {
-      return fail(res, 400, "Tartib yo'nalishi noto'g'ri.");
-    }
-
-    audit(user, "reorder", "lesson_content", content.id, { lesson_id: lesson.id });
-    saveDb();
-    return send(res, 200, { ok: true, content });
-  }
-
-  const contentItemMatch = pathname.match(/^\/api\/content\/([^/]+)$/);
-  if (contentItemMatch && method === "DELETE") {
-    const content = db.lesson_content.find((item) => item.id === contentItemMatch[1]);
-    const lesson = content && db.lessons.find((item) => item.id === content.lesson_id);
-    const course = lesson && db.courses.find((item) => item.id === lesson.course_id);
-    if (!content || !lesson || !course || !canManageCourse(user, course)) return fail(res, 404, "Kontent topilmadi.");
-    if (content.file_url) {
-      const assetPath = path.normalize(path.join(uploadDir, content.file_url.replace(/^\/uploads\//, "")));
-      if (assetPath.startsWith(uploadDir) && fs.existsSync(assetPath)) fs.unlinkSync(assetPath);
-    }
-    db.lesson_content = db.lesson_content.filter((item) => item.id !== content.id);
-    audit(user, "delete", "lesson_content", content.id, { lesson_id: lesson.id });
-    saveDb();
-    return send(res, 200, { ok: true });
-  }
-
-  if (contentItemMatch && method === "PATCH") {
-    const content = db.lesson_content.find((item) => item.id === contentItemMatch[1]);
-    const lesson = content && db.lessons.find((item) => item.id === content.lesson_id);
-    const course = lesson && db.courses.find((item) => item.id === lesson.course_id);
-    if (!content || !lesson || !course || !canManageCourse(user, course)) return fail(res, 404, "Kontent topilmadi.");
-    const contentType = req.headers["content-type"] || "";
-    let fields = {};
-    let files = [];
-    if (contentType.includes("multipart/form-data")) ({ fields, files } = parseMultipart(await readBody(req), contentType));
-    else fields = await readJson(req);
-    const nextType = fields.type || content.type;
-    if (nextType === "file") {
-      const file = files[0];
-      if (file) {
-        if (content.file_url) {
-          const assetPath = path.normalize(path.join(uploadDir, content.file_url.replace(/^\/uploads\//, "")));
-          if (assetPath.startsWith(uploadDir) && fs.existsSync(assetPath)) fs.unlinkSync(assetPath);
-        }
-        const storedUrl = saveUploadedFile(file, "");
-        content.file_url = storedUrl;
-        content.file_name = file.filename;
-        content.mime_type = file.mime;
-        content.file_size = file.data.length;
-      }
-      content.content = fields.content || "";
-      content.type = "file";
-    } else if (nextType === "text") {
-      content.type = "text";
-      content.content = sanitize(fields.content || "");
-      content.file_url = null;
-      content.file_name = null;
-      content.mime_type = null;
-    } else if (nextType === "link") {
-      content.type = "link";
-      content.content = sanitize(fields.content || fields.link || "");
-      content.file_url = null;
-      content.file_name = null;
-      content.mime_type = null;
-    }
-    if (Number.isFinite(Number(fields.order))) content.order = Number(fields.order);
-    audit(user, "update", "lesson_content", content.id, { lesson_id: lesson.id });
-    saveDb();
-    return send(res, 200, { ok: true, content });
-  }
-
-  if (pathname === "/api/ratings" && method === "GET") {
-    const visibleRatings = user.role === "admin"
-      ? db.ratings
-      : user.role === "teacher"
-        ? db.ratings.filter((item) => item.teacher_id === user.id)
-        : db.ratings.filter((item) => item.student_id === user.id);
-    return send(res, 200, { ratings: visibleRatings });
-  }
-
-  if (pathname === "/api/ratings" && method === "POST") {
-    if (!requireRole(res, user, ["student"])) return;
-    const body = await readJson(req);
-    const teacherId = body.teacher_id;
-    const courseId = body.course_id;
-    if (!teacherId || !courseId || !body.score) return fail(res, 400, "Barcha maydonlar to'ldirilishi kerak.");
-    const teacher = db.users.find((item) => item.id === teacherId && item.role === "teacher");
-    const course = db.courses.find((item) => item.id === courseId);
-    if (!teacher || !course) return fail(res, 404, "O'qituvchi yoki kurs topilmadi.");
-    const existing = db.ratings.find((item) => item.student_id === user.id && item.teacher_id === teacherId && item.course_id === courseId);
-    const payload = {
-      id: existing?.id || id("rat"),
-      student_id: user.id,
-      teacher_id: teacherId,
-      course_id: courseId,
-      score: Number(body.score),
-      comment: sanitize(body.comment || ""),
-      created_at: now()
-    };
-    if (existing) Object.assign(existing, payload);
-    else db.ratings.push(payload);
-    saveDb();
-    return send(res, 200, { rating: payload, message: existing ? "Baholangandan so'ng yangilandi." : "Baholash saqlandi." });
-  }
-
-  if (pathname === "/api/admin/stats" && method === "GET") {
-    if (!requireRole(res, user, ["admin"])) return;
-    const nowDate = new Date();
-    const series = [];
-    for (let index = 29; index >= 0; index -= 1) {
-      const date = new Date(nowDate);
-      date.setDate(nowDate.getDate() - index);
-      const start = new Date(date);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(date);
-      end.setHours(23, 59, 59, 999);
-      const count = db.users.filter((item) => {
-        const created = new Date(item.created_at || 0);
-        return created >= start && created <= end;
-      }).length;
-      series.push({ label: `${date.getDate()}/${date.getMonth() + 1}`, count });
-    }
-    const studentsPerCourse = db.courses.map((course) => ({
-      course: course.title,
-      students: db.enrollments.filter((item) => item.course_id === course.id).length
-    }));
-    const roleDistribution = ["admin", "teacher", "student"].map((role) => ({
-      role,
-      count: db.users.filter((item) => item.role === role).length
-    }));
-    const ratingDistribution = [1, 2, 3, 4, 5].map((score) => ({ score, count: db.ratings.filter((item) => Number(item.score) === score).length }));
-    return send(res, 200, { series, studentsPerCourse, roleDistribution, ratingDistribution });
-  }
-
   const enrollMatch = pathname.match(/^\/api\/courses\/([^/]+)\/enrollments$/);
   if (enrollMatch && method === "POST") {
     if (!requireRole(res, user, ["admin", "teacher"])) return;
     const course = db.courses.find((item) => item.id === enrollMatch[1]);
-    if (user.role === "teacher" && course?.teacher_id !== user.id) return fail(res, 403, "Bu kursga o'quvchi qo'sha olmaysiz.");
     if (!course || !canManageCourse(user, course)) return fail(res, 404, "Kurs topilmadi.");
     const body = await readJson(req);
     const student = db.users.find((item) => item.id === body.student_id && item.role === "student");
