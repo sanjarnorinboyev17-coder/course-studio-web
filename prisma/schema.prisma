@@ -15,6 +15,7 @@ model users {
   createdBy    String?  @map("created_by")
   teacherId    String?  @map("teacher_id")
   isActive     Boolean  @default(true) @map("is_active")
+  avatarUrl    String?  @map("avatar_url")
   phone        String   @default("")
   telegramNotify Boolean @default(true) @map("telegram_notify")
   smsNotify      Boolean @default(true) @map("sms_notify")
@@ -52,6 +53,7 @@ model lessonContent {
   fileUrl   String?  @map("file_url")
   fileName  String?  @map("file_name")
   mimeType  String?  @map("mime_type")
+  fileSize  Int?     @map("file_size")
   order     Float    @default(1)
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -80,6 +82,19 @@ model submissions {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("course_studio_submissions")
+}
+
+model ratings {
+  id        String   @id
+  studentId String   @map("student_id")
+  teacherId String   @map("teacher_id")
+  courseId  String   @map("course_id")
+  score     Int
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([studentId, teacherId, courseId])
+  @@map("course_studio_ratings")
 }
 
 model auditLog {

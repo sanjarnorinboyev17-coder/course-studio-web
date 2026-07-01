@@ -3,13 +3,13 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { URL } = require("node:url");
+const { Pool } = require("pg");
 
 const root = path.join(__dirname, "..");
 const publicDir = path.join(root, "public");
 const runtimeDir = process.env.VERCEL ? path.join("/tmp", "course-studio") : __dirname;
 const dataDir = path.join(runtimeDir, "data");
 const uploadDir = path.join(runtimeDir, "uploads");
-const dbFile = path.join(dataDir, "course-studio.json");
 const envFile = path.join(root, ".env");
 
 if (fs.existsSync(envFile)) {
@@ -21,6 +21,7 @@ if (fs.existsSync(envFile)) {
 
 const port = Number(process.env.PORT || 3000);
 const jwtSecret = process.env.JWT_SECRET || "dev-only-change-me";
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 fs.mkdirSync(dataDir, { recursive: true });
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -136,23 +137,7 @@ function ensureSeedUsers(dbState) {
   }
 }
 
-function loadDb() {
-  if (!fs.existsSync(dbFile)) {
-    const fresh = seedDb();
-    fs.writeFileSync(dbFile, JSON.stringify(fresh, null, 2));
-    return fresh;
-  }
-  return normalizeDb(JSON.parse(fs.readFileSync(dbFile, "utf8")));
-}
-
-let db = loadDb();
-ensureSeedUsers(db);
-saveDb();
-
-function saveDb() {
-  normalizeDb(db);
-  fs.writeFileSync(dbFile, JSON.stringify(db, null, 2));
-}
+let db = null;
 
 function normalizeDb(dbState) {
   dbState.users = dbState.users || [];
@@ -183,6 +168,178 @@ function normalizeDb(dbState) {
     });
   }
   return dbState;
+}
+
+async function ensureDbSchema() {
+  const sql = fs.readFileSync(path.join(root, "scripts", "ensure-course-studio-db.js"), "utf8");
+  const match = sql.match(/const sql = `([\s\S]*?)`;/);
+  if (!match) throw new Error("DB schema SQL topilmadi.");
+  await pool.query(match[1]);
+}
+
+async function loadDb() {
+  await ensureDbSchema();
+  const [usersRes, coursesRes, lessonsRes, contentRes, enrollmentsRes, submissionsRes, ratingsRes, auditRes] = await Promise.all([
+    pool.query("SELECT * FROM course_studio.course_studio_users ORDER BY created_at ASC"),
+    pool.query("SELECT * FROM course_studio.course_studio_courses ORDER BY created_at ASC"),
+    pool.query('SELECT * FROM course_studio.course_studio_lessons ORDER BY course_id ASC, "order" ASC'),
+    pool.query('SELECT * FROM course_studio.course_studio_lesson_content ORDER BY lesson_id ASC, "order" ASC, created_at ASC'),
+    pool.query("SELECT * FROM course_studio.course_studio_enrollments ORDER BY created_at ASC"),
+    pool.query("SELECT * FROM course_studio.course_studio_submissions ORDER BY created_at ASC"),
+    pool.query("SELECT * FROM course_studio.course_studio_ratings ORDER BY created_at DESC"),
+    pool.query("SELECT * FROM course_studio.course_studio_audit_logs ORDER BY created_at DESC")
+  ]);
+
+  const state = normalizeDb({
+    users: usersRes.rows.map((user) => ({
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      password_hash: user.password_hash,
+      role: user.role,
+      created_by: user.created_by,
+      teacher_id: user.teacher_id,
+      is_active: user.is_active,
+      avatar_url: user.avatar_url,
+      phone: user.phone || "",
+      telegram_notify: user.telegram_notify,
+      sms_notify: user.sms_notify,
+      email_notify: user.email_notify,
+      created_at: user.created_at.toISOString()
+    })),
+    courses: coursesRes.rows.map((course) => ({
+      id: course.id,
+      title: course.title,
+      description: course.description,
+      teacher_id: course.teacher_id,
+      created_at: course.created_at.toISOString()
+    })),
+    lessons: lessonsRes.rows.map((lesson) => ({
+      id: lesson.id,
+      course_id: lesson.course_id,
+      title: lesson.title,
+      order: lesson.order,
+      created_at: lesson.created_at.toISOString()
+    })),
+    lesson_content: contentRes.rows.map((content) => ({
+      id: content.id,
+      lesson_id: content.lesson_id,
+      type: content.type,
+      content: content.content,
+      file_url: content.file_url,
+      file_name: content.file_name,
+      mime_type: content.mime_type,
+      file_size: content.file_size,
+      order: Number(content.order || 1),
+      created_at: content.created_at.toISOString()
+    })),
+    enrollments: enrollmentsRes.rows.map((enrollment) => ({
+      id: enrollment.id,
+      course_id: enrollment.course_id,
+      student_id: enrollment.student_id,
+      progress: enrollment.progress,
+      completed_lessons: enrollment.completed_lessons || [],
+      created_at: enrollment.created_at.toISOString()
+    })),
+    submissions: submissionsRes.rows.map((submission) => ({
+      id: submission.id,
+      lesson_id: submission.lesson_id,
+      student_id: submission.student_id,
+      content: submission.content,
+      file_url: submission.file_url,
+      grade: submission.grade,
+      created_at: submission.created_at.toISOString()
+    })),
+    ratings: ratingsRes.rows.map((rating) => ({
+      id: rating.id,
+      student_id: rating.student_id,
+      teacher_id: rating.teacher_id,
+      course_id: rating.course_id,
+      score: rating.score,
+      comment: rating.comment,
+      created_at: rating.created_at.toISOString()
+    })),
+    audit_logs: auditRes.rows.map((log) => ({
+      id: log.id,
+      actor_id: log.actor_id,
+      action: log.action,
+      entity: log.entity,
+      entity_id: log.entity_id,
+      details: log.details || {},
+      created_at: log.created_at.toISOString()
+    }))
+  });
+
+  ensureSeedUsers(state);
+  if (!usersRes.rowCount) await saveDb(state);
+  return state;
+}
+
+async function saveDb(nextDb = db) {
+  normalizeDb(nextDb);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("TRUNCATE course_studio.course_studio_audit_logs, course_studio.course_studio_ratings, course_studio.course_studio_submissions, course_studio.course_studio_enrollments, course_studio.course_studio_lesson_content, course_studio.course_studio_lessons, course_studio.course_studio_courses, course_studio.course_studio_users");
+
+    for (const user of nextDb.users) {
+      await client.query(
+        `INSERT INTO course_studio.course_studio_users (id, name, username, password_hash, role, created_by, teacher_id, is_active, avatar_url, phone, telegram_notify, sms_notify, email_notify, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        [user.id, user.name, user.username, user.password_hash, user.role, user.created_by, user.teacher_id, user.is_active, user.avatar_url || null, user.phone || "", user.telegram_notify ?? true, user.sms_notify ?? true, user.email_notify ?? true, user.created_at]
+      );
+    }
+    for (const course of nextDb.courses) {
+      await client.query(
+        `INSERT INTO course_studio.course_studio_courses (id, title, description, teacher_id, created_at) VALUES ($1,$2,$3,$4,$5)`,
+        [course.id, course.title, course.description, course.teacher_id, course.created_at]
+      );
+    }
+    for (const lesson of nextDb.lessons) {
+      await client.query(
+        `INSERT INTO course_studio.course_studio_lessons (id, course_id, title, "order", created_at) VALUES ($1,$2,$3,$4,$5)`,
+        [lesson.id, lesson.course_id, lesson.title, lesson.order, lesson.created_at]
+      );
+    }
+    for (const content of nextDb.lesson_content) {
+      await client.query(
+        `INSERT INTO course_studio.course_studio_lesson_content (id, lesson_id, type, content, file_url, file_name, mime_type, file_size, "order", created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [content.id, content.lesson_id, content.type, content.content, content.file_url, content.file_name, content.mime_type, content.file_size || null, Number(content.order || 1), content.created_at]
+      );
+    }
+    for (const enrollment of nextDb.enrollments) {
+      await client.query(
+        `INSERT INTO course_studio.course_studio_enrollments (id, course_id, student_id, progress, completed_lessons, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [enrollment.id, enrollment.course_id, enrollment.student_id, enrollment.progress, enrollment.completed_lessons || [], enrollment.created_at]
+      );
+    }
+    for (const submission of nextDb.submissions) {
+      await client.query(
+        `INSERT INTO course_studio.course_studio_submissions (id, lesson_id, student_id, content, file_url, grade, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [submission.id, submission.lesson_id, submission.student_id, submission.content, submission.file_url, submission.grade, submission.created_at]
+      );
+    }
+    for (const rating of nextDb.ratings) {
+      await client.query(
+        `INSERT INTO course_studio.course_studio_ratings (id, student_id, teacher_id, course_id, score, comment, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [rating.id, rating.student_id, rating.teacher_id, rating.course_id, rating.score, rating.comment, rating.created_at]
+      );
+    }
+    for (const log of nextDb.audit_logs) {
+      await client.query(
+        `INSERT INTO course_studio.course_studio_audit_logs (id, actor_id, action, entity, entity_id, details, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [log.id, log.actor_id, log.action, log.entity, log.entity_id, JSON.stringify(log.details || {}), log.created_at]
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 function audit(actor, action, entity, entityId, details = {}) {
@@ -368,7 +525,7 @@ async function api(req, res, pathname, method) {
       user.avatar_url = avatarUrl;
     }
     audit(user, "update", "profile", user.id, { username: user.username });
-    saveDb();
+    await saveDb();
     return send(res, 200, { user: publicUser(user), message: "Profil yangilandi." });
   }
 
@@ -379,7 +536,7 @@ async function api(req, res, pathname, method) {
     if (body.new_password !== body.confirm_password) return fail(res, 400, "Yangi parollar mos kelmadi.");
     user.password_hash = hashPassword(body.new_password);
     audit(user, "update", "password", user.id);
-    saveDb();
+    await saveDb();
     return send(res, 200, { message: "Parol muvaffaqiyatli yangilandi." });
   }
 
@@ -393,7 +550,7 @@ async function api(req, res, pathname, method) {
       sms_notify: user.sms_notify,
       email_notify: user.email_notify
     });
-    saveDb();
+    await saveDb();
     return send(res, 200, { user: publicUser(user), message: "Bildirishnoma sozlamalari saqlandi." });
   }
 
@@ -439,7 +596,7 @@ async function api(req, res, pathname, method) {
     const created = { id: id("usr"), name: sanitize(body.name), username, password_hash: hashPassword(password), role: body.role, created_by: user.id, teacher_id: body.role === "student" ? body.teacher_id || null : null, is_active: true, created_at: now() };
     db.users.push(created);
     audit(user, "create", "user", created.id, { username: created.username, role: created.role });
-    saveDb();
+    await saveDb();
     return send(res, 201, { user: publicUser(created), password });
   }
 
@@ -467,7 +624,7 @@ async function api(req, res, pathname, method) {
       }
     }
     audit(user, method === "DELETE" ? "delete" : "update", "user", target.id);
-    saveDb();
+    await saveDb();
     return send(res, 200, { ok: true });
   }
 
@@ -482,7 +639,7 @@ async function api(req, res, pathname, method) {
     const course = { id: id("crs"), title: sanitize(body.title), description: sanitize(body.description), teacher_id: teacherId, created_at: now() };
     db.courses.push(course);
     audit(user, "create", "course", course.id);
-    saveDb();
+    await saveDb();
     return send(res, 201, { course: hydrateCourse(course, user) });
   }
 
@@ -504,7 +661,7 @@ async function api(req, res, pathname, method) {
       if (user.role === "admin" && body.teacher_id) course.teacher_id = body.teacher_id;
     }
     audit(user, method === "DELETE" ? "delete" : "update", "course", course.id);
-    saveDb();
+    await saveDb();
     return send(res, 200, { ok: true });
   }
 
@@ -517,7 +674,7 @@ async function api(req, res, pathname, method) {
     const lesson = { id: id("les"), course_id: course.id, title: sanitize(body.title), order, created_at: now() };
     db.lessons.push(lesson);
     audit(user, "create", "lesson", lesson.id);
-    saveDb();
+    await saveDb();
     return send(res, 201, { lesson });
   }
 
@@ -535,7 +692,7 @@ async function api(req, res, pathname, method) {
       lesson.order = Number(body.order ?? lesson.order);
     }
     audit(user, method === "DELETE" ? "delete" : "update", "lesson", lesson.id);
-    saveDb();
+    await saveDb();
     return send(res, 200, { ok: true });
   }
 
@@ -565,7 +722,7 @@ async function api(req, res, pathname, method) {
     }
     db.lesson_content.push(record);
     audit(user, "create", "lesson_content", record.id, { type });
-    saveDb();
+    await saveDb();
     return send(res, 201, { content: record });
   }
 
@@ -596,7 +753,7 @@ async function api(req, res, pathname, method) {
     }
 
     audit(user, "reorder", "lesson_content", content.id, { lesson_id: lesson.id });
-    saveDb();
+    await saveDb();
     return send(res, 200, { ok: true, content });
   }
 
@@ -612,7 +769,7 @@ async function api(req, res, pathname, method) {
     }
     db.lesson_content = db.lesson_content.filter((item) => item.id !== content.id);
     audit(user, "delete", "lesson_content", content.id, { lesson_id: lesson.id });
-    saveDb();
+    await saveDb();
     return send(res, 200, { ok: true });
   }
 
@@ -657,7 +814,7 @@ async function api(req, res, pathname, method) {
     }
     if (Number.isFinite(Number(fields.order))) content.order = Number(fields.order);
     audit(user, "update", "lesson_content", content.id, { lesson_id: lesson.id });
-    saveDb();
+    await saveDb();
     return send(res, 200, { ok: true, content });
   }
 
@@ -691,7 +848,7 @@ async function api(req, res, pathname, method) {
     };
     if (existing) Object.assign(existing, payload);
     else db.ratings.push(payload);
-    saveDb();
+    await saveDb();
     return send(res, 200, { rating: payload, message: existing ? "Baholangandan so'ng yangilandi." : "Baholash saqlandi." });
   }
 
@@ -737,7 +894,7 @@ async function api(req, res, pathname, method) {
       db.enrollments.push({ id: id("enr"), course_id: course.id, student_id: student.id, progress: 0, completed_lessons: [], created_at: now() });
     }
     audit(user, "enroll", "course", course.id, { student_id: student.id });
-    saveDb();
+    await saveDb();
     return send(res, 200, { ok: true });
   }
 
@@ -756,7 +913,7 @@ async function api(req, res, pathname, method) {
     enrollment.completed_lessons = [...set];
     const total = db.lessons.filter((item) => item.course_id === lesson.course_id).length || 1;
     enrollment.progress = Math.round((enrollment.completed_lessons.length / total) * 100);
-    saveDb();
+    await saveDb();
     return send(res, 200, { enrollment });
   }
 
@@ -778,7 +935,7 @@ async function api(req, res, pathname, method) {
     }
     const submission = { id: id("sub"), lesson_id: lesson.id, student_id: user.id, content: fields.content || "", file_url, grade: null, created_at: now() };
     db.submissions.push(submission);
-    saveDb();
+    await saveDb();
     return send(res, 201, { submission });
   }
 
@@ -791,7 +948,7 @@ async function api(req, res, pathname, method) {
     if (!submission || !course || !canManageCourse(user, course)) return fail(res, 404, "Topshiriq topilmadi.");
     const body = await readJson(req);
     submission.grade = sanitize(body.grade || "");
-    saveDb();
+    await saveDb();
     return send(res, 200, { submission });
   }
 
@@ -817,10 +974,18 @@ async function handleRequest(req, res) {
 }
 
 if (require.main === module) {
-  const server = http.createServer(handleRequest);
-  server.listen(port, () => {
-    console.log(`Course Studio running at http://localhost:${port}`);
-  });
+  (async () => {
+    try {
+      db = await loadDb();
+      const server = http.createServer(handleRequest);
+      server.listen(port, () => {
+        console.log(`Course Studio running at http://localhost:${port}`);
+      });
+    } catch (error) {
+      console.error("Startup error:", error);
+      process.exit(1);
+    }
+  })();
 }
 
 module.exports = { handleRequest };
